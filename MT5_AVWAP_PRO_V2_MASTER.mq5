@@ -84,6 +84,11 @@ input int  LondonOpenHour   = 8;    // London session open hour (server time)
 input int  NYOpenHour       = 13;   // New York session open hour (server time)
 
 //====================================================
+// Constants
+//====================================================
+#define SECONDS_PER_DAY 86400
+
+//====================================================
 // Buffers
 //====================================================
 double B1[], C1[];
@@ -180,7 +185,7 @@ void CalcAVWAP(const int       rates_total,
          vv += v;
       }
 
-      buf[i] = (vv > 0) ? pv / vv : tp;
+      buf[i] = (vv > 0) ? pv / vv : EMPTY_VALUE; // VWAP undefined when volume is zero
 
       // 색상: Close >= AVWAP → Lime(0, 상승), Close < AVWAP → Red(1, 하락)
       clr[i] = (close[i] >= buf[i]) ? 0.0 : 1.0;
@@ -200,7 +205,7 @@ datetime GetSessionOpen(int hourGMT, datetime now)
    dt.sec  = 0;
    datetime sessionTime = StructToTime(dt);
    if(sessionTime > now)
-      sessionTime -= 86400; // 아직 오픈 전이면 어제로
+      sessionTime -= SECONDS_PER_DAY; // 아직 오픈 전이면 어제로
    return sessionTime;
 }
 
@@ -221,8 +226,13 @@ int OnCalculate(const int      rates_total,
    if(rates_total < 1)
       return 0;
 
-   // 실거래량 없는 브로커는 tick_volume 사용
-   const bool useRealVol = (volume[rates_total - 1] > 0);
+   // 실거래량 여부를 여러 바 확인하여 결정 (일부 브로커는 마지막 바 볼륨이 0일 수 있음)
+   bool useRealVol = false;
+   int  checkBars  = MathMin(rates_total, 10);
+   for(int i = rates_total - checkBars; i < rates_total; i++)
+   {
+      if(volume[i] > 0) { useRealVol = true; break; }
+   }
 
    // 마지막 바 시각을 기준 시각으로 사용
    datetime now = time[rates_total - 1];
@@ -234,7 +244,7 @@ int OnCalculate(const int      rates_total,
    TimeToStruct(now, dtNow);
    dtNow.hour = 0; dtNow.min = 0; dtNow.sec = 0;
    datetime todayStart     = StructToTime(dtNow);
-   datetime yesterdayStart = todayStart - 86400;
+   datetime yesterdayStart = todayStart - SECONDS_PER_DAY;
 
    //------------------------------------------------------------
    // 앵커 datetime 초기화
@@ -275,7 +285,8 @@ int OnCalculate(const int      rates_total,
    //------------------------------------------------------------
    // 각 AVWAP 계산
    //------------------------------------------------------------
-   // 공용 볼륨 배열 선택
+   // MQL5에서는 배열 참조의 조건부 별칭을 지원하지 않으므로
+   // 전처리기 매크로로 볼륨 배열 선택
    #define VOL (useRealVol ? volume : tick_volume)
 
    if(UseTodayOpen)
